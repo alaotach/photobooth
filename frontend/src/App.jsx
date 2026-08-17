@@ -7,7 +7,7 @@ import { loadMLModel, processVideoFrame } from './lib/backgroundRemoval';
 import { sampleBackgroundLighting } from './lib/colorGrading';
 import TransparentVideo from './components/TransparentVideo';
 
-const SOCKET_SERVER_URL = `http://${window.location.hostname}:5000`;
+const SOCKET_SERVER_URL = `https://photobooth.aloo.gay`;
 
 const ICE_SERVERS = {
   iceServers: [
