@@ -78,10 +78,16 @@ self.onmessage = async (e) => {
         downsample_ratio: dsRatio,
       });
 
-      r1 = results['r1o'];
-      r2 = results['r2o'];
-      r3 = results['r3o'];
-      r4 = results['r4o'];
+      const cloneR = (t) => {
+        const cloned = new ort.Tensor(t.type, new Float32Array(t.data), t.dims);
+        try { t.dispose(); } catch (_) {}
+        return cloned;
+      };
+
+      r1 = cloneR(results['r1o']);
+      r2 = cloneR(results['r2o']);
+      r3 = cloneR(results['r3o']);
+      r4 = cloneR(results['r4o']);
 
       try { prevR1.dispose(); prevR2.dispose(); prevR3.dispose(); prevR4.dispose(); } catch (_) {}
 
