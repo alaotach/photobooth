@@ -6,8 +6,15 @@ ort.env.wasm.proxy = false;
 let session = null;
 let downsampleRatio = 0.25;
 
-// Input resolution
-const INP_W = 256, INP_H = 144;
+// Dynamically compute dimensions that preserve aspect ratio and are multiples of 16
+const getDynamicDims = (width, height, maxDim = 384) => {
+  const scale = maxDim / Math.max(width, height);
+  let w = Math.round((width * scale) / 16) * 16;
+  let h = Math.round((height * scale) / 16) * 16;
+  w = Math.max(16, w);
+  h = Math.max(16, h);
+  return { w, h };
+};
 
 // Recurrent states — initialized as [1,1,1,1] scalars.
 // Confirmed working via local onnxruntime-node test: the model broadcasts from this shape.
@@ -21,6 +28,7 @@ const initRecurrentState = () => {
 };
 
 const bitmapToTensor = (bitmap) => {
+  const { w: INP_W, h: INP_H } = getDynamicDims(bitmap.width, bitmap.height);
   const canvas = new OffscreenCanvas(INP_W, INP_H);
   const ctx = canvas.getContext('2d');
   ctx.drawImage(bitmap, 0, 0, INP_W, INP_H);

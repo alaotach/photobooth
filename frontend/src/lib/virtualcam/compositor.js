@@ -127,8 +127,8 @@ export class WebGLCompositor {
       return t;
     };
     this.fgrTexture = createTex(gl.LINEAR);
-    // Mask uses NEAREST — R32F/LUMINANCE float textures are not linearly filterable without extensions
-    this.maskTexture = createTex(gl.NEAREST);
+    // Mask uses LINEAR now that it's an 8-bit LUMINANCE texture (float textures weren't filterable)
+    this.maskTexture = createTex(gl.LINEAR);
     this.bgTexture = createTex(gl.LINEAR);
   }
 
