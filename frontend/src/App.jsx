@@ -3,9 +3,8 @@ import { io } from 'socket.io-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Mic, MicOff, Video, VideoOff, Loader2, Smartphone, SwitchCamera } from 'lucide-react';
-import { loadMLModel, processVideoFrame } from './lib/backgroundRemoval';
 import { sampleBackgroundLighting } from './lib/colorGrading';
-import TransparentVideo from './components/TransparentVideo';
+import { createVirtualCam } from './lib/virtualcam';
 
 const SOCKET_SERVER_URL = `https://photobooth.aloo.gay`;
 
@@ -55,6 +54,7 @@ function App() {
   const bgImageRef = useRef(null);
   const animationFrameRef = useRef(null);
   
+  const virtualCamSessionRef = useRef(null);
   const socketRef = useRef(null);
   const peerConnectionRef = useRef(null);
   const localStreamRef = useRef(null);
@@ -74,12 +74,7 @@ function App() {
       setRoomId(roomParam);
     }
 
-    loadMLModel().then(() => {
-      setMlLoaded(true);
-    }).catch(e => {
-      console.error("Failed to load ML model", e);
-      setMlLoaded(true); // Fallback so they aren't blocked forever
-    });
+    setMlLoaded(true);
 
     socketRef.current = io(SOCKET_SERVER_URL);
 
@@ -186,6 +181,10 @@ function App() {
       setLighting(result);
     };
     img.src = selectedBg;
+    
+    if (virtualCamSessionRef.current) {
+      virtualCamSessionRef.current.setBackground({ type: 'image', src: selectedBg });
+    }
   }, [selectedBg]);
 
   const getMedia = async (requestedDeviceId = null) => {
@@ -195,8 +194,8 @@ function App() {
       }
       
       const videoConstraints = requestedDeviceId 
-        ? { deviceId: { exact: requestedDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
-        : { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } };
+        ? { deviceId: { exact: requestedDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }
+        : { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
 
       const rawStream = await navigator.mediaDevices.getUserMedia({ 
         video: videoConstraints, 
@@ -215,84 +214,28 @@ function App() {
       if (requestedDeviceId) {
          setSelectedVideoDeviceId(requestedDeviceId);
       } else if (videoInputs.length > 0) {
-         // Get the actual active track's deviceId to keep it in sync
          const activeTrack = rawStream.getVideoTracks()[0];
          const activeDevice = videoInputs.find(d => d.label === activeTrack.label);
          setSelectedVideoDeviceId(activeDevice ? activeDevice.deviceId : videoInputs[0].deviceId);
       }
-      
-      if (rawVideoRef.current) {
-        rawVideoRef.current.srcObject = rawStream;
-        await new Promise(resolve => {
-           rawVideoRef.current.onloadedmetadata = () => {
-             rawVideoRef.current.play();
-             resolve();
-           };
-        });
+
+      if (virtualCamSessionRef.current) {
+        virtualCamSessionRef.current.destroy();
       }
-
-      let lastVideoTime = -1;
       
-      const processLoop = async () => {
-        if (rawVideoRef.current && canvasRef.current && webrtcCanvasRef.current) {
-          const videoTrack = rawVideoRef.current.srcObject?.getVideoTracks()[0];
-          
-          if (videoTrack && !videoTrack.enabled) {
-            // Camera is off — clear both canvases to fully transparent so no black box appears
-            const lCtx = canvasRef.current.getContext('2d');
-            const wCtx = webrtcCanvasRef.current.getContext('2d');
-            lCtx?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-            wCtx?.clearRect(0, 0, webrtcCanvasRef.current.width, webrtcCanvasRef.current.height);
-            // Fill webrtc canvas with pure magenta so the receiver sees transparency
-            if (wCtx) {
-              wCtx.fillStyle = '#00FF00'; // GREEN screen
-              wCtx.fillRect(0, 0, webrtcCanvasRef.current.width, webrtcCanvasRef.current.height);
-            }
-          } else if (rawVideoRef.current.currentTime !== lastVideoTime) {
-            // ONLY process if there is a mathematically new frame from the camera!
-            // If phone screen is 120Hz but camera is 30fps, this prevents processing the same frame 4 times.
-            lastVideoTime = rawVideoRef.current.currentTime;
-            
-            await processVideoFrame(
-              rawVideoRef.current, 
-              canvasRef.current, 
-              webrtcCanvasRef.current,
-              (depthY) => {
-                setLocalDepth(depthY);
-                const now = Date.now();
-                if (now - lastDepthEmitTimeRef.current > 100) { // Throttle to 10fps
-                   lastDepthEmitTimeRef.current = now;
-                   if (otherUserIdRef.current) {
-                      socketRef.current.emit('depth-update', { target: otherUserIdRef.current, depth: depthY });
-                   }
-                }
-              }
-            );
-          }
-        }
-        animationFrameRef.current = requestAnimationFrame(processLoop); 
-      };
+      const vcam = await createVirtualCam(rawStream, {
+        background: { type: 'image', src: selectedBg },
+        downsampleRatio: 0.25,
+        modelUrl: '/models/rvm_mobilenetv3_fp16.onnx'
+      });
       
-      if (canvasRef.current && webrtcCanvasRef.current) {
-        canvasRef.current.width = rawVideoRef.current.videoWidth || 640;
-        canvasRef.current.height = rawVideoRef.current.videoHeight || 480;
-        webrtcCanvasRef.current.width = rawVideoRef.current.videoWidth || 640;
-        webrtcCanvasRef.current.height = rawVideoRef.current.videoHeight || 480;
+      virtualCamSessionRef.current = vcam;
+      localStreamRef.current = vcam.outputStream;
+      webrtcStreamRef.current = vcam.outputStream;
+      
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = vcam.outputStream;
       }
-
-      processLoop();
-
-      // The local stream uses the native transparent canvas for flawless quality
-      const localDisplayStream = canvasRef.current.captureStream(30);
-      localStreamRef.current = localDisplayStream;
-
-      // The WebRTC stream uses the Magenta canvas
-      const webrtcStream = webrtcCanvasRef.current.captureStream(30);
-      const audioTracks = rawStream.getAudioTracks();
-      if (audioTracks.length > 0) {
-        webrtcStream.addTrack(audioTracks[0]);
-      }
-      webrtcStreamRef.current = webrtcStream;
       setHasVideo(true);
 
       if (isVideoOff) rawStream.getVideoTracks().forEach(t => t.enabled = false);
@@ -312,48 +255,28 @@ function App() {
       const nextIndex = (currentIndex + 1) % videoDevices.length;
       const nextDeviceId = videoDevices[nextIndex].deviceId;
       
-      // Stop current raw stream tracks
-      if (rawVideoRef.current && rawVideoRef.current.srcObject) {
-        rawVideoRef.current.srcObject.getTracks().forEach(t => t.stop());
-      }
+      // We need to re-initialize everything with the new device
+      await getMedia(nextDeviceId);
       
-      // Get new raw stream for specific camera
-      const newRawStream = await navigator.mediaDevices.getUserMedia({
-        video: { deviceId: { exact: nextDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-      });
-      
-      rawVideoRef.current.srcObject = newRawStream;
-      await new Promise(resolve => {
-         rawVideoRef.current.onloadedmetadata = () => {
-           rawVideoRef.current.play();
-           resolve();
-         };
-      });
-      
-      // The background removal processLoop keeps running and reading from rawVideoRef!
-      // But we need to update the audio track in the WebRTC stream
-      const newAudioTrack = newRawStream.getAudioTracks()[0];
-      if (webrtcStreamRef.current && newAudioTrack) {
-         webrtcStreamRef.current.getAudioTracks().forEach(t => webrtcStreamRef.current.removeTrack(t));
-         webrtcStreamRef.current.addTrack(newAudioTrack);
-      }
-      
-      // Replace the active audio track in the live peer connection without renegotiating!
-      if (peerConnectionRef.current && newAudioTrack) {
+      // Update WebRTC connection with the new streams
+      if (peerConnectionRef.current && webrtcStreamRef.current) {
+         const newAudioTrack = webrtcStreamRef.current.getAudioTracks()[0];
+         const newVideoTrack = webrtcStreamRef.current.getVideoTracks()[0];
+         
          const senders = peerConnectionRef.current.getSenders();
-         const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
-         if (audioSender) {
-             audioSender.replaceTrack(newAudioTrack);
+         
+         if (newAudioTrack) {
+           const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
+           if (audioSender) audioSender.replaceTrack(newAudioTrack);
+         }
+         
+         if (newVideoTrack) {
+           const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+           if (videoSender) videoSender.replaceTrack(newVideoTrack);
          }
       }
-      
-      if (isVideoOff) newRawStream.getVideoTracks().forEach(t => t.enabled = false);
-      if (isMuted) newRawStream.getAudioTracks().forEach(t => t.enabled = false);
-      
-      setSelectedVideoDeviceId(nextDeviceId);
-    } catch (err) {
-      console.error("Error switching camera.", err);
+    } catch (e) {
+      console.error("Failed to switch camera", e);
     }
   };
 
@@ -482,43 +405,21 @@ function App() {
   };
 
   const toggleMute = () => {
-    if (rawVideoRef.current && rawVideoRef.current.srcObject) {
-      const audioTrack = rawVideoRef.current.srcObject.getAudioTracks()[0];
-      if (audioTrack) {
-        audioTrack.enabled = !audioTrack.enabled;
-        setIsMuted(!audioTrack.enabled);
-        
-        if (webrtcStreamRef.current) {
-          const wTrack = webrtcStreamRef.current.getAudioTracks()[0];
-          if (wTrack) wTrack.enabled = audioTrack.enabled;
+    if (webrtcStreamRef.current) {
+        const audioTrack = webrtcStreamRef.current.getAudioTracks()[0];
+        if (audioTrack) {
+          audioTrack.enabled = !audioTrack.enabled;
+          setIsMuted(!audioTrack.enabled);
         }
-
-        if (audioSenderRef.current) {
-          audioSenderRef.current.replaceTrack(audioTrack.enabled ? (webrtcStreamRef.current.getAudioTracks()[0] || audioTrack) : null);
-        }
-      }
     }
   };
 
   const toggleVideo = () => {
-    if (rawVideoRef.current && rawVideoRef.current.srcObject) {
-      const videoTrack = rawVideoRef.current.srcObject.getVideoTracks()[0];
+    if (webrtcStreamRef.current) {
+      const videoTrack = webrtcStreamRef.current.getVideoTracks()[0];
       if (videoTrack) {
         videoTrack.enabled = !videoTrack.enabled;
         setIsVideoOff(!videoTrack.enabled);
-        
-        if (localStreamRef.current) {
-           const canvasTrack = localStreamRef.current.getVideoTracks()[0];
-           if (canvasTrack) canvasTrack.enabled = videoTrack.enabled;
-        }
-        if (webrtcStreamRef.current) {
-           const webrtcTrack = webrtcStreamRef.current.getVideoTracks()[0];
-           if (webrtcTrack) webrtcTrack.enabled = videoTrack.enabled;
-        }
-        
-        if (videoSenderRef.current) {
-          videoSenderRef.current.replaceTrack(videoTrack.enabled ? webrtcStreamRef.current.getVideoTracks()[0] : null);
-        }
       }
     }
   };
@@ -539,11 +440,6 @@ function App() {
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col items-center justify-center p-4">
-      <div className="fixed top-[-9999px] opacity-0 pointer-events-none">
-        <video ref={rawVideoRef} autoPlay playsInline muted />
-        <canvas ref={canvasRef} />
-        <canvas ref={webrtcCanvasRef} />
-      </div>
 
       {/* Portrait Mode Warning Overlay */}
       <div className="portrait:flex landscape:hidden fixed inset-0 z-[100] bg-background/95 backdrop-blur-md flex-col items-center justify-center p-6 text-center">
@@ -601,24 +497,33 @@ function App() {
             </div>
           </div>
           
-          {/* Shared Stage: Both users are composited into this single container */}
-          <div 
-            className="relative w-full aspect-video bg-zinc-900 rounded-2xl overflow-hidden shadow-lg border-2 border-border"
-            style={{ 
-              backgroundImage: selectedBg ? `url(${selectedBg})` : 'none',
-              backgroundSize: 'cover',
-              backgroundPosition: 'center'
-            }}
-          >
-             {/* Render Local User */}
-             {localStreamRef.current && (
-                <TransparentVideo stream={localStreamRef.current} isLocal={true} depth={localDepth} lighting={lighting} />
-             )}
-
-             {/* Render Remote User */}
-             {remoteStreamRef.current && (
-                <TransparentVideo stream={remoteStreamRef.current} isLocal={false} depth={remoteDepth} lighting={lighting} />
-             )}
+          {/* Main Rendering Area */}
+          <div className="relative w-full aspect-video rounded-2xl overflow-hidden bg-black/50 border shadow-inner flex items-center justify-center" style={{ backgroundImage: selectedBg ? `url(${selectedBg})` : 'none', backgroundSize: 'cover', backgroundPosition: 'center' }}>
+            
+            {!inRoom && !hasVideo ? (
+              <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground animate-in fade-in zoom-in duration-500">
+                 <Camera size={48} className="opacity-20" />
+                 <p>Initializing camera...</p>
+              </div>
+            ) : (
+              <div className="w-full h-full relative" style={{ zIndex: 10 }}>
+                {/* Background is pre-composited! We just render the stream */}
+                <video 
+                  ref={localVideoRef} 
+                  autoPlay 
+                  playsInline 
+                  muted 
+                  className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 transform -scale-x-100 ${isFriendConnected ? 'opacity-100 z-20 w-48 h-auto shadow-xl border rounded-lg bottom-4 right-4 left-auto top-auto' : 'opacity-100'}`} 
+                />
+                
+                <video 
+                  ref={remoteVideoRef} 
+                  autoPlay 
+                  playsInline 
+                  className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 transform -scale-x-100 ${isFriendConnected ? 'opacity-100 z-10' : 'opacity-0'}`} 
+                />
+              </div>
+            )}
              
              {/* UI Overlays */}
              {!isFriendConnected && (
