@@ -1,6 +1,14 @@
 export class WebGLCompositor {
-  constructor() {
-    this.canvas = new OffscreenCanvas(640, 480);
+  constructor(options = {}) {
+    this.canvas = typeof OffscreenCanvas !== 'undefined' 
+      ? new OffscreenCanvas(options.width || 640, options.height || 480)
+      : document.createElement('canvas');
+      
+    if (this.canvas.width === undefined && options.width) {
+      this.canvas.width = options.width;
+      this.canvas.height = options.height;
+    }
+
     this.gl = this.canvas.getContext('webgl2', {
       alpha: true,
       premultipliedAlpha: true,
@@ -11,6 +19,7 @@ export class WebGLCompositor {
     this.bgImageElement = null;
     this.bgType = 'transparent';
     this.bgColor = '#000000';
+    this.uniforms = {};
   }
 
   initShaders() {
@@ -94,6 +103,16 @@ export class WebGLCompositor {
     gl.uniform1i(gl.getUniformLocation(this.program, 'u_fgr'), 0);
     gl.uniform1i(gl.getUniformLocation(this.program, 'u_pha'), 1);
     gl.uniform1i(gl.getUniformLocation(this.program, 'u_bg'), 2);
+    
+    this.uniforms = {
+      bgType:       gl.getUniformLocation(this.program, 'u_bg_type'),
+      bgColor:      gl.getUniformLocation(this.program, 'u_bg_color'),
+      tint:         gl.getUniformLocation(this.program, 'u_tint'),
+      tintStrength: gl.getUniformLocation(this.program, 'u_tint_strength'),
+    };
+    
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   }
 
   initTextures() {
@@ -149,6 +168,8 @@ export class WebGLCompositor {
     if (this.canvas.width !== frame.displayWidth || this.canvas.height !== frame.displayHeight) {
       this.canvas.width = frame.displayWidth;
       this.canvas.height = frame.displayHeight;
+      this.initShaders();
+      this.initTextures();
       gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     }
     
@@ -174,21 +195,40 @@ export class WebGLCompositor {
       bgTypeInt = 2;
     } else if (this.bgType === 'blur') {
       bgTypeInt = 3;
+      
+      if (!this.blurCanvas) {
+        this.blurCanvas = typeof OffscreenCanvas !== 'undefined'
+          ? new OffscreenCanvas(frame.displayWidth, frame.displayHeight)
+          : document.createElement('canvas');
+        if (this.blurCanvas.width === undefined) {
+           this.blurCanvas.width = frame.displayWidth;
+           this.blurCanvas.height = frame.displayHeight;
+        }
+        this.blurCtx = this.blurCanvas.getContext('2d');
+      } else if (this.blurCanvas.width !== frame.displayWidth || this.blurCanvas.height !== frame.displayHeight) {
+        this.blurCanvas.width = frame.displayWidth;
+        this.blurCanvas.height = frame.displayHeight;
+      }
+      
+      this.blurCtx.filter = 'blur(20px)';
+      this.blurCtx.drawImage(frame, 0, 0, frame.displayWidth, frame.displayHeight);
+      this.blurCtx.filter = 'none';
+      
       gl.activeTexture(gl.TEXTURE2);
       gl.bindTexture(gl.TEXTURE_2D, this.bgTexture);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, frame);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.blurCanvas);
     }
 
     gl.useProgram(this.program);
-    gl.uniform1i(gl.getUniformLocation(this.program, 'u_bg_type'), bgTypeInt);
+    gl.uniform1i(this.uniforms.bgType, bgTypeInt);
     
     if (bgTypeInt === 2) {
       const color = this.hexToRgba(this.bgColor);
-      gl.uniform4fv(gl.getUniformLocation(this.program, 'u_bg_color'), color);
+      gl.uniform4fv(this.uniforms.bgColor, color);
     }
 
-    gl.uniform3fv(gl.getUniformLocation(this.program, 'u_tint'), [1,1,1]);
-    gl.uniform1f(gl.getUniformLocation(this.program, 'u_tint_strength'), 0.0);
+    gl.uniform3fv(this.uniforms.tint, [1,1,1]);
+    gl.uniform1f(this.uniforms.tintStrength, 0.0);
     
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     

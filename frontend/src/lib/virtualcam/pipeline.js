@@ -32,7 +32,6 @@ export class VirtualCamPipeline {
       }));
 
       frame.close();
-      composited.close();
     } catch (e) {
       console.error('VirtualCam processFrame error', e);
       controller.enqueue(frame);
@@ -86,6 +85,8 @@ export class CanvasFallbackPipeline {
       ? new OffscreenCanvas(640, 480) 
       : document.createElement('canvas');
     this.processingCtx = this.processingCanvas.getContext('2d', { willReadFrequently: true });
+    
+    this.processing = false;
   }
 
   async init() {
@@ -113,6 +114,12 @@ export class CanvasFallbackPipeline {
 
   async processLoop() {
     if (!this.isRunning) return;
+    if (this.processing) {
+      this.animationFrameId = requestAnimationFrame(this.processLoop.bind(this));
+      return;
+    }
+    
+    this.processing = true;
 
     try {
       if (this.videoElement.readyState >= 2) {
@@ -138,6 +145,8 @@ export class CanvasFallbackPipeline {
       }
     } catch (e) {
       console.error('VirtualCam CanvasFallback error', e);
+    } finally {
+      this.processing = false;
     }
     
     this.animationFrameId = requestAnimationFrame(this.processLoop.bind(this));

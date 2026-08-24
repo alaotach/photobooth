@@ -59,6 +59,8 @@ self.onmessage = async (e) => {
       const src = bitmapToTensor(bitmap);
       const dsRatio = new ort.Tensor('float32', Float32Array.from([downsampleRatio]));
 
+      const prevR1 = r1, prevR2 = r2, prevR3 = r3, prevR4 = r4;
+      
       const results = await session.run({
         src, r1i: r1, r2i: r2, r3i: r3, r4i: r4,
         downsample_ratio: dsRatio,
@@ -68,6 +70,11 @@ self.onmessage = async (e) => {
       r2 = results['r2o'];
       r3 = results['r3o'];
       r4 = results['r4o'];
+      
+      prevR1.dispose();
+      prevR2.dispose();
+      prevR3.dispose();
+      prevR4.dispose();
 
       self.postMessage({
         type: 'result',
