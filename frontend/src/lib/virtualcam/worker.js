@@ -77,7 +77,13 @@ self.onmessage = async (e) => {
 
       try { prevR1.dispose(); prevR2.dispose(); prevR3.dispose(); prevR4.dispose(); } catch (_) {}
 
-      self.postMessage({ type: 'result', id, pha: results['pha'], fgr: results['fgr'] });
+      // Explicitly serialize tensors because postMessage strips getters
+      const phaData = results['pha'];
+      self.postMessage({ 
+        type: 'result', 
+        id, 
+        pha: { dims: phaData.dims, data: phaData.data } 
+      });
 
       src.dispose();
       dsRatio.dispose();
