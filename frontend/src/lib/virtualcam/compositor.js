@@ -205,20 +205,20 @@ export class WebGLCompositor {
       
       if (!this.blurCanvas) {
         this.blurCanvas = typeof OffscreenCanvas !== 'undefined'
-          ? new OffscreenCanvas(frame.displayWidth, frame.displayHeight)
+          ? new OffscreenCanvas(frameW, frameH)
           : document.createElement('canvas');
-        if (this.blurCanvas.width === undefined) {
-           this.blurCanvas.width = frame.displayWidth;
-           this.blurCanvas.height = frame.displayHeight;
+        if (this.blurCanvas.width !== undefined) {
+           this.blurCanvas.width = frameW;
+           this.blurCanvas.height = frameH;
         }
         this.blurCtx = this.blurCanvas.getContext('2d');
-      } else if (this.blurCanvas.width !== frame.displayWidth || this.blurCanvas.height !== frame.displayHeight) {
-        this.blurCanvas.width = frame.displayWidth;
-        this.blurCanvas.height = frame.displayHeight;
+      } else if (this.blurCanvas.width !== frameW || this.blurCanvas.height !== frameH) {
+        this.blurCanvas.width = frameW;
+        this.blurCanvas.height = frameH;
       }
       
       this.blurCtx.filter = 'blur(20px)';
-      this.blurCtx.drawImage(frame, 0, 0, frame.displayWidth, frame.displayHeight);
+      this.blurCtx.drawImage(frame, 0, 0, frameW, frameH);
       this.blurCtx.filter = 'none';
       
       gl.activeTexture(gl.TEXTURE2);

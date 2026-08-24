@@ -126,22 +126,27 @@ export class CanvasFallbackPipeline {
         // Draw video frame to processing canvas
         this.processingCtx.drawImage(this.videoElement, 0, 0, this.outputCanvas.width, this.outputCanvas.height);
         
-        // Convert to ImageBitmap or use the canvas directly for the worker
+        // Create ImageBitmap from the processing canvas for the RVM worker
         let sourceImage;
-        if (typeof createImageBitmap !== 'undefined') {
+        try {
           sourceImage = await createImageBitmap(this.processingCanvas);
-        } else {
-          sourceImage = this.processingCanvas; // Note: worker expects bitmap, might need adaptation in worker.js
+        } catch (_) {
+          // Fallback: use processingCanvas directly (worker handles both)
+          sourceImage = this.processingCanvas;
         }
         
         const { pha } = await this.worker.segment(sourceImage);
-        const composited = await this.compositor.composite(this.videoElement, pha);
         
-        // Draw composited result to output canvas
-        this.outputCtx.clearRect(0, 0, this.outputCanvas.width, this.outputCanvas.height);
-        this.outputCtx.drawImage(composited, 0, 0);
+        // Pass processingCanvas (not HTMLVideoElement) — Firefox WebGL can't always accept HTMLVideoElement
+        const composited = await this.compositor.composite(this.processingCanvas, pha);
         
-        if (sourceImage.close) sourceImage.close();
+        if (composited) {
+          // Draw composited result to output canvas
+          this.outputCtx.clearRect(0, 0, this.outputCanvas.width, this.outputCanvas.height);
+          this.outputCtx.drawImage(composited, 0, 0);
+        }
+        
+        if (sourceImage && sourceImage.close) sourceImage.close();
       }
     } catch (e) {
       console.error('VirtualCam CanvasFallback error', e);
