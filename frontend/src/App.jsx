@@ -7,7 +7,7 @@ import { loadMLModel, processVideoFrame } from './lib/backgroundRemoval';
 import { sampleBackgroundLighting } from './lib/colorGrading';
 import TransparentVideo from './components/TransparentVideo';
 
-const SOCKET_SERVER_URL = `https://d3kq2mlh0dzdwf.cloudfront.net`;
+const SOCKET_SERVER_URL = `https://photobooth.aloo.gay`;
 
 const ICE_SERVERS = {
   iceServers: [
