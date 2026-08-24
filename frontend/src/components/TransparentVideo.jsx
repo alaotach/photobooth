@@ -2,6 +2,7 @@ import React, { useRef, useEffect } from 'react';
 
 export default function TransparentVideo({ stream, isLocal, depth = 1.0, lighting = { tint: [1, 1, 1], luminance: 0.5, warmth: 0 } }) {
   const videoRef = useRef(null);
+  const audioRef = useRef(null);
   const canvasRef = useRef(null);
 
   useEffect(() => {
@@ -15,6 +16,11 @@ export default function TransparentVideo({ stream, isLocal, depth = 1.0, lightin
       video.play().catch(e => {
         if (e.name !== 'AbortError') console.error('Video play error:', e);
       });
+    }
+    
+    if (!isLocal && audioRef.current && audioRef.current.srcObject !== stream) {
+       audioRef.current.srcObject = stream;
+       audioRef.current.play().catch(e => console.error('Audio play error:', e));
     }
 
     let animationId;
@@ -210,9 +216,16 @@ export default function TransparentVideo({ stream, isLocal, depth = 1.0, lightin
       <video
         ref={videoRef}
         playsInline
-        muted={isLocal}
+        muted={true}
         className="hidden"
       />
+      {!isLocal && (
+        <audio
+          ref={audioRef}
+          autoPlay
+          playsInline
+        />
+      )}
       <canvas
         ref={canvasRef}
         className="absolute inset-0 w-full h-full object-cover pointer-events-none scale-x-[-1]"
