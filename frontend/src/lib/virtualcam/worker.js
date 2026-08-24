@@ -1,6 +1,7 @@
 import * as ort from 'onnxruntime-web';
 
-ort.env.wasm.proxy = false; 
+ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.29.0/dist/';
+ort.env.wasm.proxy = false;  
 
 let session = null;
 let downsampleRatio = 0.25;
@@ -46,7 +47,8 @@ self.onmessage = async (e) => {
       initRecurrentState();
       self.postMessage({ type: 'ready' });
     } catch (error) {
-      self.postMessage({ type: 'error', error: error.message });
+      console.error('Worker init error:', error);
+      self.postMessage({ type: 'error', error: error.message || String(error) });
     }
     return;
   }
@@ -85,7 +87,8 @@ self.onmessage = async (e) => {
       src.dispose();
       bitmap.close();
     } catch (error) {
-      self.postMessage({ type: 'error', error: error.message, id });
+      console.error('Worker segment error:', error);
+      self.postMessage({ type: 'error', id, error: error.message || String(error) });
       bitmap.close();
     }
   }

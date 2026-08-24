@@ -243,7 +243,8 @@ function App() {
 
     } catch (err) {
       console.error("Error accessing media devices.", err);
-      alert(`Could not access camera/microphone: ${err.message}. Please allow permissions.`);
+      const msg = (err && err.message) ? err.message : String(err);
+      alert(`Could not access camera/microphone: ${msg}. Please allow permissions.`);
     }
   };
 
