@@ -81,9 +81,6 @@ export default function TransparentVideo({ stream, isLocal, depth = 1.0, lightin
 
     // Vertex shader: full-screen quad
     const vert = `
-      attribute vec2 a_pos;
-      varying vec2 v_uv;
-      void main() {
       attribute vec2 a_position;
       attribute vec2 a_texCoord;
       varying vec2 v_texCoord;
