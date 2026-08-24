@@ -244,6 +244,12 @@ export class WebGLCompositor {
     gl.uniform3fv(this.uniforms.tint, [1,1,1]);
     gl.uniform1f(this.uniforms.tintStrength, 0.0);
     
+    // Explicitly clear the backbuffer to transparent black before drawing.
+    // Without this, transparent pixels (alpha 0) will blend with the uncleared previous frame,
+    // causing a permanent ghosting/accumulation effect.
+    gl.clearColor(0.0, 0.0, 0.0, 0.0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     
     return this.canvas;
