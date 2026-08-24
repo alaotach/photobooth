@@ -6,65 +6,36 @@ ort.env.wasm.proxy = false;
 let session = null;
 let downsampleRatio = 0.25;
 
-// Recurrent states — initialized from the model's own input metadata
+// Input resolution — must match initRecurrentState below
+const INP_W = 256, INP_H = 144;
+
+// Recurrent states — zero-initialized with shapes confirmed by local model test:
+// For INP 256x144 with downsample_ratio=0.25:
+//   r1o: [1,16,18,32]  r2o: [1,20,9,16]  r3o: [1,40,5,8]  r4o: [1,64,3,4]
+// We init with [1,1,1,1] (scalars) which the model broadcasts from correctly.
 let r1 = null, r2 = null, r3 = null, r4 = null;
 
-/**
- * Create a zero tensor whose shape is read from the loaded session's input metadata.
- */
-const zeroTensorFromMeta = (inputMeta) => {
-  const dims = inputMeta.dims.map(d => (typeof d === 'bigint' ? Number(d) : (d > 0 ? d : 1)));
-  const size = dims.reduce((a, b) => a * b, 1);
-  return new ort.Tensor('float32', new Float32Array(size), dims);
-};
-
 const initRecurrentState = () => {
-  const inputs = session.inputNames;
-  const meta = session.inputMetadata || {};
-
-  // Fall back to reading from session if inputMetadata not available (ORT compat)
-  const getMeta = (name) => {
-    if (session.inputMetadata) return session.inputMetadata[name];
-    // ORT Web exposes inputs via handler — use dims from the ONNX model spec
-    return null;
-  };
-
-  const r1Meta = getMeta('r1i');
-  const r2Meta = getMeta('r2i');
-  const r3Meta = getMeta('r3i');
-  const r4Meta = getMeta('r4i');
-
-  if (r1Meta && r1Meta.dims) {
-    r1 = zeroTensorFromMeta(r1Meta);
-    r2 = zeroTensorFromMeta(r2Meta);
-    r3 = zeroTensorFromMeta(r3Meta);
-    r4 = zeroTensorFromMeta(r4Meta);
-    console.log('[worker] r1 shape from model:', r1.dims);
-  } else {
-    // Hard fallback — use 1-element zero tensors (model will broadcast)
-    // This avoids shape mismatch entirely; ORT will expand as needed
-    r1 = new ort.Tensor('float32', new Float32Array([0]), [1, 1, 1, 1]);
-    r2 = new ort.Tensor('float32', new Float32Array([0]), [1, 1, 1, 1]);
-    r3 = new ort.Tensor('float32', new Float32Array([0]), [1, 1, 1, 1]);
-    r4 = new ort.Tensor('float32', new Float32Array([0]), [1, 1, 1, 1]);
-    console.warn('[worker] Could not read recurrent state dims from model, using 1x1x1x1 zero init');
-  }
+  r1 = new ort.Tensor('float32', new Float32Array([0]), [1, 1, 1, 1]);
+  r2 = new ort.Tensor('float32', new Float32Array([0]), [1, 1, 1, 1]);
+  r3 = new ort.Tensor('float32', new Float32Array([0]), [1, 1, 1, 1]);
+  r4 = new ort.Tensor('float32', new Float32Array([0]), [1, 1, 1, 1]);
 };
 
 const bitmapToTensor = (bitmap) => {
-  const W = 320, H = 240;
-  const canvas = new OffscreenCanvas(W, H);
+  const canvas = new OffscreenCanvas(INP_W, INP_H);
   const ctx = canvas.getContext('2d');
-  ctx.drawImage(bitmap, 0, 0, W, H);
-  const imageData = ctx.getImageData(0, 0, W, H);
+  ctx.drawImage(bitmap, 0, 0, INP_W, INP_H);
+  const imageData = ctx.getImageData(0, 0, INP_W, INP_H);
   const { data } = imageData;
-  const tensor = new Float32Array(3 * H * W);
-  for (let i = 0; i < H * W; i++) {
-    tensor[i]           = data[i * 4]     / 255.0; // R
-    tensor[H * W + i]   = data[i * 4 + 1] / 255.0; // G
-    tensor[H * W*2 + i] = data[i * 4 + 2] / 255.0; // B
+  const N = INP_H * INP_W;
+  const tensor = new Float32Array(3 * N);
+  for (let i = 0; i < N; i++) {
+    tensor[i]       = data[i * 4]     / 255.0;
+    tensor[N + i]   = data[i * 4 + 1] / 255.0;
+    tensor[N*2 + i] = data[i * 4 + 2] / 255.0;
   }
-  return new ort.Tensor('float32', tensor, [1, 3, H, W]);
+  return new ort.Tensor('float32', tensor, [1, 3, INP_H, INP_W]);
 };
 
 self.onmessage = async (e) => {
@@ -77,11 +48,11 @@ self.onmessage = async (e) => {
         { executionProviders: ['wasm'], graphOptimizationLevel: 'all' }
       );
       downsampleRatio = payload.downsampleRatio ?? 0.25;
-      console.log('[worker] Model loaded. Input names:', session.inputNames);
+      console.log('[RVM worker] Model loaded. Inputs:', session.inputNames);
       initRecurrentState();
       self.postMessage({ type: 'ready' });
     } catch (error) {
-      console.error('Worker init error:', error);
+      console.error('[RVM worker] Init error:', error);
       self.postMessage({ type: 'error', error: error.message || String(error) });
     }
     return;
@@ -94,7 +65,6 @@ self.onmessage = async (e) => {
     try {
       const src = bitmapToTensor(bitmap);
       const dsRatio = new ort.Tensor('float32', Float32Array.from([downsampleRatio]));
-
       const prevR1 = r1, prevR2 = r2, prevR3 = r3, prevR4 = r4;
 
       const results = await session.run({
@@ -107,15 +77,18 @@ self.onmessage = async (e) => {
       r3 = results['r3o'];
       r4 = results['r4o'];
 
-      try { prevR1.dispose(); prevR2.dispose(); prevR3.dispose(); prevR4.dispose(); } catch(_) {}
+      // Dispose previous states but guard — first frame states are [1,1,1,1] scalar tensors
+      try { prevR1.dispose(); prevR2.dispose(); prevR3.dispose(); prevR4.dispose(); } catch (_) {}
 
       self.postMessage({ type: 'result', id, pha: results['pha'], fgr: results['fgr'] });
+
       src.dispose();
+      dsRatio.dispose();
       bitmap.close();
     } catch (error) {
-      console.error('Worker segment error:', error);
+      console.error('[RVM worker] Segment error:', error);
       self.postMessage({ type: 'error', id, error: error.message || String(error) });
-      try { bitmap.close(); } catch(_) {}
+      try { bitmap.close(); } catch (_) {}
     }
   }
 
