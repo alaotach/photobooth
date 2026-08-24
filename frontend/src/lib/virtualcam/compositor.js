@@ -117,18 +117,19 @@ export class WebGLCompositor {
 
   initTextures() {
     const gl = this.gl;
-    const createTex = () => {
+    const createTex = (filter = gl.LINEAR) => {
       const t = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, t);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
       return t;
     };
-    this.fgrTexture = createTex();
-    this.maskTexture = createTex();
-    this.bgTexture = createTex();
+    this.fgrTexture = createTex(gl.LINEAR);
+    // Mask uses NEAREST — R32F/LUMINANCE float textures are not linearly filterable without extensions
+    this.maskTexture = createTex(gl.NEAREST);
+    this.bgTexture = createTex(gl.LINEAR);
   }
 
   hexToRgba(hex) {
@@ -186,7 +187,14 @@ export class WebGLCompositor {
     
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.maskTexture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, pha.dims[3], pha.dims[2], 0, gl.RED, gl.FLOAT, pha.data);
+    // Convert float32 mask to Uint8 LUMINANCE — avoids needing OES_texture_float_linear extension
+    const maskW = pha.dims[3];
+    const maskH = pha.dims[2];
+    const maskU8 = new Uint8Array(maskW * maskH);
+    for (let i = 0; i < pha.data.length; i++) {
+      maskU8[i] = Math.min(255, Math.max(0, pha.data[i] * 255 + 0.5));
+    }
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, maskW, maskH, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, maskU8);
     
     let bgTypeInt = 0;
     if (this.bgType === 'image' || this.bgType === 'video') {
