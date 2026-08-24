@@ -165,9 +165,15 @@ export class WebGLCompositor {
   async composite(frame, pha) {
     const gl = this.gl;
     
-    if (this.canvas.width !== frame.displayWidth || this.canvas.height !== frame.displayHeight) {
-      this.canvas.width = frame.displayWidth;
-      this.canvas.height = frame.displayHeight;
+    // VideoFrame uses .displayWidth/.displayHeight; ImageBitmap uses .width/.height
+    const frameW = frame.displayWidth ?? frame.width;
+    const frameH = frame.displayHeight ?? frame.height;
+
+    if (!frameW || !frameH) return; // Guard against invalid frames
+    
+    if (this.canvas.width !== frameW || this.canvas.height !== frameH) {
+      this.canvas.width = frameW;
+      this.canvas.height = frameH;
       this.initShaders();
       this.initTextures();
       gl.viewport(0, 0, this.canvas.width, this.canvas.height);
@@ -176,6 +182,7 @@ export class WebGLCompositor {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.fgrTexture);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, frame);
+
     
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.maskTexture);
