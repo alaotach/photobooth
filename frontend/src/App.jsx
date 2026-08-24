@@ -177,8 +177,8 @@ function App() {
       }
       
       const videoConstraints = requestedDeviceId 
-        ? { deviceId: { exact: requestedDeviceId }, width: { ideal: 640 }, height: { ideal: 480 } }
-        : { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } };
+        ? { deviceId: { exact: requestedDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+        : { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } };
 
       const rawStream = await navigator.mediaDevices.getUserMedia({ 
         video: videoConstraints, 
@@ -293,7 +293,7 @@ function App() {
       
       // Get new raw stream for specific camera
       const newRawStream = await navigator.mediaDevices.getUserMedia({
-        video: { deviceId: { exact: nextDeviceId }, width: { ideal: 640 }, height: { ideal: 480 } },
+        video: { deviceId: { exact: nextDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
       });
       
