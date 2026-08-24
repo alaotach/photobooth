@@ -12,10 +12,10 @@ let r3 = null;
 let r4 = null;
 
 const initRecurrentState = () => {
-  r1 = new ort.Tensor('float32', new Float32Array(1 * 16 * 144 * 256), [1, 16, 144, 256]);
-  r2 = new ort.Tensor('float32', new Float32Array(1 * 20 * 72 * 128),  [1, 20, 72,  128]);
-  r3 = new ort.Tensor('float32', new Float32Array(1 * 40 * 36 * 64),   [1, 40, 36,  64]);
-  r4 = new ort.Tensor('float32', new Float32Array(1 * 64 * 18 * 32),   [1, 64, 18,  32]);
+  r1 = new ort.Tensor('float32', new Float32Array(1 * 16 * 72 * 128), [1, 16, 72, 128]);
+  r2 = new ort.Tensor('float32', new Float32Array(1 * 20 * 36 * 64),  [1, 20, 36,  64]);
+  r3 = new ort.Tensor('float32', new Float32Array(1 * 40 * 18 * 32),  [1, 40, 18,  32]);
+  r4 = new ort.Tensor('float32', new Float32Array(1 * 64 *  9 * 16),  [1, 64,  9,  16]);
 };
 
 const bitmapToTensor = (bitmap) => {
