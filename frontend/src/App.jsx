@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Mic, MicOff, Video, VideoOff, Loader2, Smartphone } from 'lucide-react';
+import { Mic, MicOff, Video, VideoOff, Loader2, Smartphone, SwitchCamera } from 'lucide-react';
 import { loadMLModel, processVideoFrame } from './lib/backgroundRemoval';
 import { sampleBackgroundLighting } from './lib/colorGrading';
 import TransparentVideo from './components/TransparentVideo';
@@ -30,6 +30,8 @@ function App() {
   const [lighting, setLighting] = useState({ tint: [1, 1, 1], luminance: 0.5 });
   const [localDepth, setLocalDepth] = useState(1.0);
   const [remoteDepth, setRemoteDepth] = useState(1.0);
+  const [videoDevices, setVideoDevices] = useState([]);
+  const [selectedVideoDeviceId, setSelectedVideoDeviceId] = useState('');
   
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
@@ -168,23 +170,38 @@ function App() {
     img.src = selectedBg;
   }, [selectedBg]);
 
-  const getMedia = async () => {
+  const getMedia = async (requestedDeviceId = null) => {
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error("Camera API is not supported in this browser or requires HTTPS.");
       }
+      
+      const videoConstraints = requestedDeviceId 
+        ? { deviceId: { exact: requestedDeviceId }, width: { ideal: 640 }, height: { ideal: 480 } }
+        : { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } };
+
       const rawStream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
-          facingMode: "user",
-          width: { ideal: 640 },
-          height: { ideal: 480 }
-        }, 
+        video: videoConstraints, 
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true
         } 
       });
+      
+      // Enumerate devices now that permissions are granted
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoInputs = devices.filter(d => d.kind === 'videoinput');
+      setVideoDevices(videoInputs);
+      
+      if (requestedDeviceId) {
+         setSelectedVideoDeviceId(requestedDeviceId);
+      } else if (videoInputs.length > 0) {
+         // Get the actual active track's deviceId to keep it in sync
+         const activeTrack = rawStream.getVideoTracks()[0];
+         const activeDevice = videoInputs.find(d => d.label === activeTrack.label);
+         setSelectedVideoDeviceId(activeDevice ? activeDevice.deviceId : videoInputs[0].deviceId);
+      }
       
       if (rawVideoRef.current) {
         rawVideoRef.current.srcObject = rawStream;
@@ -250,11 +267,67 @@ function App() {
         webrtcStream.addTrack(audioTracks[0]);
       }
       webrtcStreamRef.current = webrtcStream;
-      
       setHasVideo(true);
-    } catch (error) {
-      console.error('Error accessing media devices.', error);
-      alert(`Failed to access camera: ${error.message}. If on mobile, ensure you are using HTTPS.`);
+
+      if (isVideoOff) rawStream.getVideoTracks().forEach(t => t.enabled = false);
+      if (isAudioOff) rawStream.getAudioTracks().forEach(t => t.enabled = false);
+
+    } catch (err) {
+      console.error("Error accessing media devices.", err);
+      setError("Could not access camera/microphone. Please allow permissions.");
+    }
+  };
+
+  const cycleCamera = async () => {
+    if (videoDevices.length <= 1) return;
+    
+    try {
+      const currentIndex = videoDevices.findIndex(d => d.deviceId === selectedVideoDeviceId);
+      const nextIndex = (currentIndex + 1) % videoDevices.length;
+      const nextDeviceId = videoDevices[nextIndex].deviceId;
+      
+      // Stop current raw stream tracks
+      if (rawVideoRef.current && rawVideoRef.current.srcObject) {
+        rawVideoRef.current.srcObject.getTracks().forEach(t => t.stop());
+      }
+      
+      // Get new raw stream for specific camera
+      const newRawStream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: nextDeviceId }, width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      });
+      
+      rawVideoRef.current.srcObject = newRawStream;
+      await new Promise(resolve => {
+         rawVideoRef.current.onloadedmetadata = () => {
+           rawVideoRef.current.play();
+           resolve();
+         };
+      });
+      
+      // The background removal processLoop keeps running and reading from rawVideoRef!
+      // But we need to update the audio track in the WebRTC stream
+      const newAudioTrack = newRawStream.getAudioTracks()[0];
+      if (webrtcStreamRef.current && newAudioTrack) {
+         webrtcStreamRef.current.getAudioTracks().forEach(t => webrtcStreamRef.current.removeTrack(t));
+         webrtcStreamRef.current.addTrack(newAudioTrack);
+      }
+      
+      // Replace the active audio track in the live peer connection without renegotiating!
+      if (peerConnectionRef.current && newAudioTrack) {
+         const senders = peerConnectionRef.current.getSenders();
+         const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
+         if (audioSender) {
+             audioSender.replaceTrack(newAudioTrack);
+         }
+      }
+      
+      if (isVideoOff) newRawStream.getVideoTracks().forEach(t => t.enabled = false);
+      if (isAudioOff) newRawStream.getAudioTracks().forEach(t => t.enabled = false);
+      
+      setSelectedVideoDeviceId(nextDeviceId);
+    } catch (err) {
+      console.error("Error switching camera.", err);
     }
   };
 
@@ -559,6 +632,15 @@ function App() {
               >
                 {isVideoOff ? <VideoOff size={24} /> : <Video size={24} />}
               </Button>
+              {videoDevices.length > 1 && (
+                <Button 
+                  variant="secondary" 
+                  onClick={cycleCamera} 
+                  className="w-16 h-16 rounded-full"
+                >
+                  <SwitchCamera size={24} />
+                </Button>
+              )}
             </div>
           </div>
 
