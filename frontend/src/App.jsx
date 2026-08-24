@@ -101,14 +101,17 @@ function App() {
     socketRef.current.on('ice-candidate', async (payload) => {
       try {
         if (peerConnectionRef.current) {
-          if (peerConnectionRef.current.remoteDescription) {
-            await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate));
+          const candidate = new RTCIceCandidate(payload.candidate);
+          if (peerConnectionRef.current.remoteDescription && peerConnectionRef.current.remoteDescription.type) {
+            peerConnectionRef.current.addIceCandidate(candidate).catch(e => {
+              console.warn("Ignored stale ICE candidate:", e.message);
+            });
           } else {
-            iceCandidatesQueue.current.push(new RTCIceCandidate(payload.candidate));
+            iceCandidatesQueue.current.push(candidate);
           }
         }
       } catch (e) {
-        console.error('Error adding received ice candidate', e);
+        console.error('Error constructing ice candidate', e);
       }
     });
 
@@ -396,7 +399,9 @@ function App() {
   const flushIceCandidates = async () => {
     while (iceCandidatesQueue.current.length > 0) {
       const candidate = iceCandidatesQueue.current.shift();
-      await peerConnectionRef.current.addIceCandidate(candidate).catch(e => console.error(e));
+      if (peerConnectionRef.current && peerConnectionRef.current.remoteDescription) {
+        peerConnectionRef.current.addIceCandidate(candidate).catch(e => console.warn("Ignored stale queued candidate:", e.message));
+      }
     }
   };
 
@@ -414,19 +419,31 @@ function App() {
   };
 
   const handleOffer = async (payload) => {
-    otherUserIdRef.current = payload.caller;
-    initPeerConnection();
-    
-    await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(payload.sdp));
-    await flushIceCandidates();
+    try {
+      otherUserIdRef.current = payload.caller;
+      
+      // Force kill any stuck/stale peer connection to prevent signaling state collisions
+      if (peerConnectionRef.current && peerConnectionRef.current.signalingState !== "closed") {
+         peerConnectionRef.current.close();
+      }
+      peerConnectionRef.current = null;
+      iceCandidatesQueue.current = [];
+      
+      initPeerConnection();
+      
+      await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+      await flushIceCandidates();
 
-    const answer = await peerConnectionRef.current.createAnswer();
-    await peerConnectionRef.current.setLocalDescription(answer);
-    
-    socketRef.current.emit('answer', {
-      target: payload.caller,
-      sdp: peerConnectionRef.current.localDescription
-    });
+      const answer = await peerConnectionRef.current.createAnswer();
+      await peerConnectionRef.current.setLocalDescription(answer);
+      
+      socketRef.current.emit('answer', {
+        target: payload.caller,
+        sdp: peerConnectionRef.current.localDescription
+      });
+    } catch (e) {
+      console.error("Critical error in handleOffer:", e);
+    }
   };
 
   const handleAnswer = async (payload) => {
