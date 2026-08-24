@@ -124,7 +124,7 @@ export const processVideoFrame = async (video, localCanvas, webrtcCanvas, onDept
 
       // Convert Float32Array to ImageData and calculate Depth
       const data = maskImageData.data;
-      let maxY = 0;
+      let personPixelCount = 0;
       let hasPerson = false;
       
       for (let i = 0; i < maskFloatArray.length; i++) {
@@ -135,18 +135,17 @@ export const processVideoFrame = async (video, localCanvas, webrtcCanvas, onDept
         data[j + 2] = 255;
         data[j + 3] = alpha;
         
-        // Depth Calculation: find lowest pixel (highest Y) where person is solidly visible
+        // Depth Calculation: Area percentage (how much of the screen the person occupies)
         if (maskFloatArray[i] > 0.3) {
-           const y = Math.floor(i / width);
-           if (y > maxY) maxY = y;
+           personPixelCount++;
            hasPerson = true;
         }
       }
       maskCtx.putImageData(maskImageData, 0, 0);
 
-      // Transmit depth (normalized 0.0 to 1.0)
+      // Transmit depth (normalized 0.0 to 1.0 area percentage)
       if (onDepthUpdate && hasPerson) {
-         onDepthUpdate(maxY / height);
+         onDepthUpdate(personPixelCount / maskFloatArray.length);
       }
 
       // --- COMPOSITING ---
