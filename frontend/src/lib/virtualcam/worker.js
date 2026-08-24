@@ -4,7 +4,7 @@ ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.29.0/di
 ort.env.wasm.proxy = false;
 
 let session = null;
-let downsampleRatio = 0.25;
+let downsampleRatio = 1.0;
 
 // Dynamically compute dimensions that preserve aspect ratio and are multiples of 16
 const getDynamicDims = (width, height, maxDim = 384) => {
@@ -53,7 +53,7 @@ self.onmessage = async (e) => {
         payload.modelUrl || '/models/rvm_mobilenetv3_fp32.onnx',
         { executionProviders: ['wasm'], graphOptimizationLevel: 'all' }
       );
-      downsampleRatio = payload.downsampleRatio ?? 0.25;
+      downsampleRatio = payload.downsampleRatio ?? 1.0;
       console.log('[RVM worker] Model loaded. Inputs:', session.inputNames);
       initRecurrentState();
       self.postMessage({ type: 'ready' });
