@@ -64,10 +64,15 @@ export class WebGLCompositor {
         }
         
         vec3 gradedFgr = colorGrade(fgr.rgb);
-        vec3 rgb = mix(bg.rgb, gradedFgr, alpha);
         
-        float outAlpha = (u_bg_type == 0) ? alpha : 1.0;
-        fragColor = vec4(rgb * outAlpha, outAlpha);
+        if (u_bg_type == 0) {
+          // Transparent background: output premultiplied foreground directly
+          fragColor = vec4(gradedFgr * alpha, alpha);
+        } else {
+          // Solid background: mix background and foreground, then output opaque
+          vec3 rgb = mix(bg.rgb, gradedFgr, alpha);
+          fragColor = vec4(rgb, 1.0);
+        }
       }
     `;
 
@@ -152,8 +157,17 @@ export class WebGLCompositor {
           const img = new Image();
           img.crossOrigin = 'anonymous';
           img.src = bg.src;
-          await new Promise((r) => (img.onload = r));
-          this.bgImageElement = img;
+          await new Promise((resolve) => {
+            img.onload = resolve;
+            img.onerror = () => {
+              console.error('Failed to load background image:', bg.src);
+              this.bgType = 'transparent'; // Fallback if image fails
+              resolve();
+            };
+          });
+          if (this.bgType === 'image') {
+            this.bgImageElement = img;
+          }
         }
       } else {
         this.bgImageElement = bg.src;
