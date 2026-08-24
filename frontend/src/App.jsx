@@ -254,6 +254,14 @@ function App() {
         }
         animationFrameRef.current = requestAnimationFrame(processLoop); 
       };
+      
+      if (canvasRef.current && webrtcCanvasRef.current) {
+        canvasRef.current.width = rawVideoRef.current.videoWidth || 640;
+        canvasRef.current.height = rawVideoRef.current.videoHeight || 480;
+        webrtcCanvasRef.current.width = rawVideoRef.current.videoWidth || 640;
+        webrtcCanvasRef.current.height = rawVideoRef.current.videoHeight || 480;
+      }
+
       processLoop();
 
       // The local stream uses the native transparent canvas for flawless quality
@@ -442,30 +450,42 @@ function App() {
   };
 
   const toggleMute = () => {
-    if (localStreamRef.current) {
-      const audioTrack = localStreamRef.current.getAudioTracks()[0];
+    if (rawVideoRef.current && rawVideoRef.current.srcObject) {
+      const audioTrack = rawVideoRef.current.srcObject.getAudioTracks()[0];
       if (audioTrack) {
         audioTrack.enabled = !audioTrack.enabled;
         setIsMuted(!audioTrack.enabled);
         
-        // Hard mute for mobile browsers: replace the track entirely with null to stop transmission
+        if (webrtcStreamRef.current) {
+          const wTrack = webrtcStreamRef.current.getAudioTracks()[0];
+          if (wTrack) wTrack.enabled = audioTrack.enabled;
+        }
+
         if (audioSenderRef.current) {
-          audioSenderRef.current.replaceTrack(audioTrack.enabled ? audioTrack : null);
+          audioSenderRef.current.replaceTrack(audioTrack.enabled ? (webrtcStreamRef.current.getAudioTracks()[0] || audioTrack) : null);
         }
       }
     }
   };
 
   const toggleVideo = () => {
-    if (localStreamRef.current) {
-      const videoTrack = localStreamRef.current.getVideoTracks()[0];
+    if (rawVideoRef.current && rawVideoRef.current.srcObject) {
+      const videoTrack = rawVideoRef.current.srcObject.getVideoTracks()[0];
       if (videoTrack) {
         videoTrack.enabled = !videoTrack.enabled;
         setIsVideoOff(!videoTrack.enabled);
         
-        // Hard mute for mobile browsers
+        if (localStreamRef.current) {
+           const canvasTrack = localStreamRef.current.getVideoTracks()[0];
+           if (canvasTrack) canvasTrack.enabled = videoTrack.enabled;
+        }
+        if (webrtcStreamRef.current) {
+           const webrtcTrack = webrtcStreamRef.current.getVideoTracks()[0];
+           if (webrtcTrack) webrtcTrack.enabled = videoTrack.enabled;
+        }
+        
         if (videoSenderRef.current) {
-          videoSenderRef.current.replaceTrack(videoTrack.enabled ? videoTrack : null);
+          videoSenderRef.current.replaceTrack(videoTrack.enabled ? webrtcStreamRef.current.getVideoTracks()[0] : null);
         }
       }
     }
