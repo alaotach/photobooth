@@ -155,7 +155,9 @@ export class WebGLCompositor {
       if (typeof bg.src === 'string') {
         if (bg.type === 'image') {
           const img = new Image();
-          img.crossOrigin = 'anonymous';
+          if (bg.src.startsWith('http')) {
+            img.crossOrigin = 'anonymous';
+          }
           img.src = bg.src;
           await new Promise((resolve) => {
             img.onload = resolve;

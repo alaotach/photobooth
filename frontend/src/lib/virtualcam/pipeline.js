@@ -126,27 +126,34 @@ export class CanvasFallbackPipeline {
         // Draw video frame to processing canvas
         this.processingCtx.drawImage(this.videoElement, 0, 0, this.outputCanvas.width, this.outputCanvas.height);
         
-        // Create ImageBitmap from the processing canvas for the RVM worker
-        let sourceImage;
-        try {
-          sourceImage = await createImageBitmap(this.processingCanvas);
-        } catch (_) {
-          // Fallback: use processingCanvas directly (worker handles both)
-          sourceImage = this.processingCanvas;
+        if (this.compositor.bgType === 'transparent') {
+          // Bypass RVM completely if background is "Off" (transparent).
+          // This avoids sending an alpha stream (which renders black on mobile <video>)
+          // and saves significant battery/CPU.
+          this.outputCtx.drawImage(this.processingCanvas, 0, 0);
+        } else {
+          // Create ImageBitmap from the processing canvas for the RVM worker
+          let sourceImage;
+          try {
+            sourceImage = await createImageBitmap(this.processingCanvas);
+          } catch (_) {
+            // Fallback: use processingCanvas directly (worker handles both)
+            sourceImage = this.processingCanvas;
+          }
+          
+          const { pha } = await this.worker.segment(sourceImage);
+          
+          // Pass processingCanvas (not HTMLVideoElement) — Firefox WebGL can't always accept HTMLVideoElement
+          const composited = await this.compositor.composite(this.processingCanvas, pha);
+          
+          if (composited) {
+            // Draw composited result to output canvas
+            this.outputCtx.clearRect(0, 0, this.outputCanvas.width, this.outputCanvas.height);
+            this.outputCtx.drawImage(composited, 0, 0);
+          }
+          
+          if (sourceImage && sourceImage.close) sourceImage.close();
         }
-        
-        const { pha } = await this.worker.segment(sourceImage);
-        
-        // Pass processingCanvas (not HTMLVideoElement) — Firefox WebGL can't always accept HTMLVideoElement
-        const composited = await this.compositor.composite(this.processingCanvas, pha);
-        
-        if (composited) {
-          // Draw composited result to output canvas
-          this.outputCtx.clearRect(0, 0, this.outputCanvas.width, this.outputCanvas.height);
-          this.outputCtx.drawImage(composited, 0, 0);
-        }
-        
-        if (sourceImage && sourceImage.close) sourceImage.close();
       }
     } catch (e) {
       console.error('VirtualCam CanvasFallback error', e);
