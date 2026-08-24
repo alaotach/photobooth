@@ -175,8 +175,7 @@ export class WebGLCompositor {
     if (this.canvas.width !== frameW || this.canvas.height !== frameH) {
       this.canvas.width = frameW;
       this.canvas.height = frameH;
-      this.initShaders();
-      this.initTextures();
+      // No need to recreate shaders/textures on canvas resize; just update viewport
       gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     }
     
