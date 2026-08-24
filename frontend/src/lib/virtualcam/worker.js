@@ -39,7 +39,7 @@ self.onmessage = async (e) => {
 
   if (type === 'init') {
     try {
-      session = await ort.InferenceSession.create(payload.modelUrl || '/models/rvm_mobilenetv3_fp16.onnx', {
+      session = await ort.InferenceSession.create(payload.modelUrl || '/models/rvm_mobilenetv3_fp32.onnx', {
         executionProviders: ['webgl', 'wasm'],
         graphOptimizationLevel: 'all',
       });

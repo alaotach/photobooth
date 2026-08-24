@@ -226,7 +226,7 @@ function App() {
       const vcam = await createVirtualCam(rawStream, {
         background: { type: 'image', src: selectedBg },
         downsampleRatio: 0.25,
-        modelUrl: '/models/rvm_mobilenetv3_fp16.onnx'
+        modelUrl: '/models/rvm_mobilenetv3_fp32.onnx'
       });
       
       virtualCamSessionRef.current = vcam;
