@@ -270,11 +270,11 @@ function App() {
       setHasVideo(true);
 
       if (isVideoOff) rawStream.getVideoTracks().forEach(t => t.enabled = false);
-      if (isAudioOff) rawStream.getAudioTracks().forEach(t => t.enabled = false);
+      if (isMuted) rawStream.getAudioTracks().forEach(t => t.enabled = false);
 
     } catch (err) {
       console.error("Error accessing media devices.", err);
-      setError("Could not access camera/microphone. Please allow permissions.");
+      alert(`Could not access camera/microphone: ${err.message}. Please allow permissions.`);
     }
   };
 
@@ -323,7 +323,7 @@ function App() {
       }
       
       if (isVideoOff) newRawStream.getVideoTracks().forEach(t => t.enabled = false);
-      if (isAudioOff) newRawStream.getAudioTracks().forEach(t => t.enabled = false);
+      if (isMuted) newRawStream.getAudioTracks().forEach(t => t.enabled = false);
       
       setSelectedVideoDeviceId(nextDeviceId);
     } catch (err) {
