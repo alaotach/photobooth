@@ -174,16 +174,24 @@ function App() {
   }, [inRoom, isFriendConnected]);
 
   useEffect(() => {
-    const img = new Image();
-    img.crossOrigin = "Anonymous";
-    img.onload = () => {
-      const result = sampleBackgroundLighting(img);
-      setLighting(result);
-    };
-    img.src = selectedBg;
+    if (selectedBg) {
+      const img = new Image();
+      if (selectedBg.startsWith('http')) {
+        img.crossOrigin = "Anonymous";
+      }
+      img.onload = () => {
+        const result = sampleBackgroundLighting(img);
+        setLighting(result);
+      };
+      img.src = selectedBg;
+    }
     
     if (virtualCamSessionRef.current) {
-      virtualCamSessionRef.current.setBackground({ type: 'image', src: selectedBg });
+      if (selectedBg) {
+        virtualCamSessionRef.current.setBackground({ type: 'image', src: selectedBg });
+      } else {
+        virtualCamSessionRef.current.setBackground({ type: 'transparent' });
+      }
     }
   }, [selectedBg]);
 
